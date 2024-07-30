@@ -44,6 +44,7 @@ kfp-pipeline-spec==0.3.0
 kfp-server-api==2.0.5
 kubernetes==26.1.0
 MarkupSafe==2.1.5
+matplotlib==3.9.1
 matplotlib-inline==0.1.7
 multidict==6.0.5
 nest-asyncio==1.6.0
@@ -74,6 +75,7 @@ requests-toolbelt==0.10.1
 rsa==4.9
 scikit-learn==1.5.0
 scipy==1.13.1
+seaborn==0.13.2
 shapely==2.0.4
 six==1.16.0
 stack-data==0.6.3
