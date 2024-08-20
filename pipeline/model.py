@@ -8,75 +8,90 @@ from kfp.v2.dsl import (
     Metrics,
 )
 
+import configparser
+config = configparser.ConfigParser()
+config.read("../config.ini")
+@component(
+    packages_to_install=["google-cloud-aiplatform"],
+    output_component_file="create_dataset.yaml",
+    base_image="python:3.11",
+)
+def create_dataset(processed_ds: Input[Dataset],
+                   project_id: str,
+                   dataset: Output[Dataset]):
+    
+    from google.cloud import aiplatform
+    
+    aiplatform.init(project=project_id)
+    gcs_uri = processed_ds.uri + ".csv"
+
+    
+    dataset = aiplatform.TabularDataset.create(
+        display_name="HR Analytics3",
+        gcs_source=gcs_uri,
+        )
+    
+    
+    
 
 @component(
-    packages_to_install=["pandas", "gcsfs", "scikit-learn", "xgboost", "joblib"],
+    packages_to_install=["google-cloud-aiplatform"],
     output_component_file="training.yaml",
-    base_image="python:3.9",
+    base_image="python:3.11",
 )
-def training(df_train: Input[Dataset], trained_model: Output[Model]):
+def training(processed_ds: Input[Dataset],
+             project_id: str,
+             model: Output[Model]):
 
-    import pandas as pd
-    import os
-    import joblib
-    from xgboost.sklearn import XGBRegressor
+    from google.cloud import aiplatform
+    
+    aiplatform.init(project=project_id)
+    
+    gcs_uri = processed_ds.uri + ".csv"
 
-    df_train = pd.read_csv(df_train.path + ".csv")
+    
+    dataset = aiplatform.TabularDataset.create(
+        display_name="HR Analytics3",
+        gcs_source=gcs_uri,
+        )
+    # print(f'This is the dataset {dataset.outputs['dataset']}')
+    
+    label_column = "Attrition"
+    job = aiplatform.AutoMLTabularTrainingJob(
+    display_name="train-automl-hr-analytics1",
+    optimization_prediction_type="classification",
+    optimization_objective="maximize-au-prc",
+)
 
-    x = df_train.drop("Purchase", axis=1)
-    y = df_train["Purchase"]
-
-    xgb_reg = XGBRegressor(learning_rate=1.0, max_depth=6, min_child_weight=40, seed=0)
-    xgb_reg.fit(x, y)
-
-    trained_model.metadata["framework"] = "XGBoost"
-    os.makedirs(trained_model.path, exist_ok=True)
-    joblib.dump(xgb_reg, os.path.join(trained_model.path, "model.joblib"))
+    model = job.run(
+        dataset=dataset,
+        target_column=label_column,
+        training_fraction_split=0.6,
+        validation_fraction_split=0.2,
+        test_fraction_split=0.2,
+        budget_milli_node_hours=1000,
+        model_display_name="test1",
+        disable_early_stopping=False,
+    )
 
 
 @component(
     packages_to_install=["pandas", "gcsfs", "scikit-learn", "xgboost", "joblib"],
     output_component_file="model_evaluation.yaml",
-    base_image="python:3.9",
+    base_image="python:3.11",
 )
 def model_evaluation(
     test_set: Input[Dataset],
     training_model: Input[Model],
     kpi: Output[Metrics],
 ):
-    import pandas as pd
-    from math import sqrt
-    import joblib
-    from sklearn.metrics import mean_squared_error, mean_absolute_error, r2_score
-
-    data = pd.read_csv(test_set.path + ".csv")
-    file_name = training_model.uri
-    model = joblib.load(file_name)
-
-    X_test = data.drop("Purchase", axis=1)
-    y_test = data["Purchase"]
-    y_pred = model.predict(X_test)
-
-    mae = mean_absolute_error(y_test, y_pred)
-    mse = mean_squared_error(y_test, y_pred)
-    r2 = r2_score(y_test, y_pred)
-    rmse = sqrt(mean_squared_error(y_test, y_pred))
-
-    training_model.metadata["mean_absolute_error"] = mae
-    training_model.metadata["mean_squared_error"] = mse
-    training_model.metadata["R2_Score"] = r2
-    training_model.metadata["root_mean_absolute_error"] = rmse
-
-    kpi.log_metric("mean_absolute_error", mae)
-    kpi.log_metric("mean_squared_error", mse)
-    kpi.log_metric("R2_Score", r2)
-    kpi.log_metric("root_mean_absolute_error", rmse)
+    pass
 
 
 @component(
     packages_to_install=["google-cloud-aiplatform==1.25.0"],
 )
-def deploy_xgboost_model(
+def deploy_automl_model(
     model: Input[Model],
     project_id: str,
     vertex_endpoint: Output[Artifact],
@@ -96,12 +111,5 @@ def deploy_xgboost_model(
 
     aiplatform.init(project=project_id)
 
-    deployed_model = aiplatform.Model.upload(
-        display_name="bf_model",
-        artifact_uri=model.uri,
-        serving_container_image_uri="us-docker.pkg.dev/vertex-ai/prediction/xgboost-cpu.1-6:latest",
-    )
-    endpoint = deployed_model.deploy(machine_type="n1-standard-4")
-
-    vertex_endpoint.uri = endpoint.resource_name
-    vertex_model.uri = deployed_model.resource_name
+    endpoint = model.deploy(deployed_model_display_name='test1',
+    machine_type='n1-standard-4')

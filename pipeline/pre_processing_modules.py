@@ -1,133 +1,102 @@
 from kfp.v2.dsl import component, Input, Output, Dataset
-
+import configparser
+config = configparser.ConfigParser()
+config.read("../config.ini")
 
 @component(
-    packages_to_install=["pandas", "gcsfs", "scikit-learn", "numpy"],
+    packages_to_install=["pandas", "gcsfs", "scikit-learn", "numpy", "scipy", "numpy", "imbalanced-learn", "imblearn"],
     output_component_file="feature_engineering.yaml",
-    base_image="python:3.9",
+    base_image="python:3.11",
 )
 def data_transformation(
-    df_train: Input[Dataset],
-    df_test: Input[Dataset],
-    dataset_train: Output[Dataset],
-    dataset_test: Output[Dataset],
-):
+    df: Input[Dataset],
+    dataset: Output[Dataset],
+    ):
 
     import pandas as pd
-    from sklearn.preprocessing import LabelEncoder
+    from imblearn.over_sampling import SMOTENC
+    from sklearn import preprocessing
     import numpy as np
 
-    df_train = pd.read_csv(df_train.path + ".csv")
-    df_test = pd.read_csv(df_test.path + ".csv")
+    df = pd.read_csv(df.path + ".csv")
 
-    # Handle categorical to integer transformation for 'Gender'
-    gender_mapping = {"F": 0, "M": 1}
-    df_train["Gender"] = df_train["Gender"].map(gender_mapping)
-    df_test["Gender"] = df_test["Gender"].map(gender_mapping)
+    df['Attrition'] = df['Attrition'].map(lambda x : 0 if x == 'no' else 1) 
+    df['MaritalStatus'] = df['MaritalStatus'].map({'single': 0, 'married': 1, 'divorced': 2})
+    num_bins=5
+    
+    binned_df = df.copy()
+    columns = df.select_dtypes(include=['int64'])
+    for col in columns:
+        col_range = df[col].max() - df[col].min()
+        if col_range > 5:
+            # Calculate quantile-based bins
+            _, bins = pd.qcut(df[col], q=num_bins, duplicates='drop', retbins=True)
+            # Adjust bins to integer values
+            bins = np.floor(bins).astype(int)
+            bins[-1] = bins[-1] + 1  # Ensure the last bin is inclusive
+            # Create labels based on bin edges
+            labels = [f'{bins[i]}<=x<{bins[i+1]}' for i in range(len(bins)-1)]
+            # Apply binning and replace original column
+            binned_df[col] = pd.cut(df[col], bins=bins, labels=labels, right=False, include_lowest=True)
+    df = binned_df
+    print(df.head())
+    df.drop(columns=['Gender','StandardHours', 'Over18', 'EmployeeCount', 'EmployeeNumber', 'BusinessTravel'], inplace=True)
+    df['Department'].value_counts()
+    department_dummies = pd.get_dummies(df['Department'], prefix='Department', dtype=float) # why now we used one-hot encoding and not label encoding?
+    df.drop(columns=['Department'], inplace=True)
+    df = pd.concat([df,department_dummies], axis=1)
+    
+    for field in ['JobRole', 'EducationField']:
+        lb = preprocessing.LabelBinarizer()
+        new_data = lb.fit_transform(df[field])
+        binary_df = pd.DataFrame(new_data, columns=[f"{field}_{cls}" for cls in lb.classes_])
+        df = pd.concat([df.drop(columns=[field]), binary_df], axis=1)
 
-    # Columns to encode
-    cols = ["Age", "City_Category", "Stay_In_Current_City_Years"]
 
-    # Combine train and test for consistent encoding
-    combined_df = pd.concat([df_train[cols], df_test[cols]], axis=0)
+    # OverTime
 
-    # Initialize the LabelEncoder
-    le = LabelEncoder()
+    df['OverTime'] = df['OverTime'].map({'yes': 1, 'no': 0})
+    print("Ciao we about to SMOTEEEE")
+    desired_minority_count = int(0.3 * 1233)
+    sampling_strategy = {0: 1233, 1: desired_minority_count}
+    X_train = df.drop(columns=['Attrition'])
+    y_train = df['Attrition']
+    print(X_train.dtypes)
+    smotenc = SMOTENC(categorical_features="auto", sampling_strategy=sampling_strategy, random_state=42)
+    X_train_resampled, y_train_resampled = smotenc.fit_resample(X_train, y_train)
 
-    # Apply LabelEncoder to each column and transform back to DataFrame
-    for col in cols:
-        combined_df[col] = le.fit_transform(combined_df[col])
+    # Combine resampled features with target
+    df = pd.concat([pd.DataFrame(X_train_resampled, columns=X_train.columns), pd.DataFrame(y_train_resampled, columns=['Attrition'])], axis=1)
+    # Education Field and JobRole
 
-    # Split the combined data back into train and test sets
-    df_train[cols] = combined_df.iloc[: len(df_train), :]
-    df_test[cols] = combined_df.iloc[len(df_train) :, :]
+    
+    
 
-    df_train["Purchase"] = np.log1p(df_train["Purchase"])
-
-    df_train.to_csv(dataset_train.path + ".csv", index=False)
-    df_test.to_csv(dataset_test.path + ".csv", index=False)
+    df.to_csv(dataset.path + ".csv", index=False)
 
 
 @component(
     packages_to_install=["pandas", "gcsfs", "scikit-learn", "numpy"],
     output_component_file="basic_preprocessing.yaml",
-    base_image="python:3.9",
+    base_image="python:3.11",
 )
 def basic_preprocessing(
-    bucket_URI: str,
-    folder: str,
-    train: str,
-    test: str,
-    dataset_train: Output[Dataset],
-    dataset_test: Output[Dataset],
+    BUCKET_URI: str,
+    FILE: str,
+    dataset: Output[Dataset],
 ):
 
     import pandas as pd
 
-    df_train_uri = "".join([bucket_URI, folder, train])
-    df_test_uri = "".join([bucket_URI, folder, test])
+    df_uri = "".join([BUCKET_URI, FILE])
+    
 
-    df_train = pd.read_csv(df_train_uri)
-    df_test = pd.read_csv(df_test_uri)
+    df = pd.read_csv(df_uri)
+    categorical_columns = df.select_dtypes(include=['object']).columns
+    for column in categorical_columns:
+        df[column] = df[column].str.replace(' ', '_').str.lower()
+    
+    df.Department = df.Department.map(lambda x : "research_and_development" if x == 'research_&_development' else x) 
+    
 
-    df_train["Stay_In_Current_City_Years"] = df_train[
-        "Stay_In_Current_City_Years"
-    ].str.replace("+", "")
-    df_train["Stay_In_Current_City_Years"] = df_train[
-        "Stay_In_Current_City_Years"
-    ].astype(int)
-
-    df_test["Stay_In_Current_City_Years"] = df_test[
-        "Stay_In_Current_City_Years"
-    ].str.replace("+", "")
-    df_test["Stay_In_Current_City_Years"] = df_test[
-        "Stay_In_Current_City_Years"
-    ].astype(int)
-
-    ## Dropping User_id and Product_ID
-    df_train = df_train.drop("User_ID", axis=1)
-    df_test = df_test.drop("User_ID", axis=1)
-    df_train = df_train.drop("Product_ID", axis=1)
-    df_test = df_test.drop("Product_ID", axis=1)
-
-    df_train = df_train.drop("Product_Category_3", axis=1)
-    df_test = df_test.drop("Product_Category_3", axis=1)
-
-    ## Imputing missing values with mode
-    df_train["Product_Category_2"].mode()[0]
-    df_train["Product_Category_2"] = df_train["Product_Category_2"].fillna(
-        df_train["Product_Category_2"].mode()[0]
-    )
-
-    df_test["Product_Category_2"].mode()[0]
-    df_test["Product_Category_2"] = df_test["Product_Category_2"].fillna(
-        df_test["Product_Category_2"].mode()[0]
-    )
-
-    df_train.to_csv(dataset_train.path + ".csv", index=False)
-    df_test.to_csv(dataset_test.path + ".csv", index=False)
-
-
-@component(
-    packages_to_install=["pandas", "gcsfs", "scikit-learn"],
-    output_component_file="train_validation_test_split.yaml",
-    base_image="python:3.9",
-)
-def train_validation_test_split(
-    df_train: Input[Dataset],
-    dataset_train: Output[Dataset],
-    dataset_valid: Output[Dataset],
-    validation_size: float = 0.2,
-):
-
-    import pandas as pd
-    from sklearn.model_selection import train_test_split
-
-    df_train = pd.read_csv(df_train.path + ".csv")
-
-    df_train, df_valid = train_test_split(
-        df_train, test_size=validation_size, random_state=42
-    )
-
-    df_train.to_csv(dataset_train.path + ".csv", index=False)
-    df_valid.to_csv(dataset_valid.path + ".csv", index=False)
+    df.to_csv(dataset.path + ".csv", index=False)
