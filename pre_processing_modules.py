@@ -5,7 +5,7 @@ config.read("../config.ini")
 
 @component(
     packages_to_install=["pandas", "gcsfs", "scikit-learn", "numpy", "scipy", "numpy", "imbalanced-learn", "imblearn"],
-    output_component_file="feature_engineering.yaml",
+    output_component_file="output_files/feature_engineering.yaml",
     base_image="python:3.11",
 )
 def data_transformation(
@@ -77,7 +77,7 @@ def data_transformation(
 
 @component(
     packages_to_install=["pandas", "gcsfs", "scikit-learn", "numpy"],
-    output_component_file="basic_preprocessing.yaml",
+    output_component_file="output_files/basic_preprocessing.yaml",
     base_image="python:3.11",
 )
 def basic_preprocessing(

@@ -1,10 +1,8 @@
 import google.cloud.aiplatform as aip
-import configparser
-config = configparser.ConfigParser()
-config.read("../config.ini")
+from ml_spec3_pipeline import load_config
 
 
-
+config = load_config()
 
 aip.init(
     project=config['gcp_pipeline']['PROJECT_ID'],
