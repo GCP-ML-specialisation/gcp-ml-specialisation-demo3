@@ -25,25 +25,18 @@ def training(
 ):
 
     from google.cloud import aiplatform
-    
     aiplatform.init(project=project_id)
-    
     gcs_uri = processed_ds.uri + ".csv"
-
-    
     dataset = aiplatform.TabularDataset.create(
         display_name="HR Analytics3",
         gcs_source=gcs_uri,
         )
- 
-    
     label_column = "Attrition"
     job = aiplatform.AutoMLTabularTrainingJob(
         display_name="train-automl-hr-analytics1",
         optimization_prediction_type="classification",
         optimization_objective="maximize-au-prc",
         )
-
     model = job.run(
         dataset=dataset,
         target_column=label_column,

@@ -20,7 +20,9 @@ def load_config():
 config = load_config()
 
 
-aip.init(project=config['gcp_pipeline']['PROJECT_ID'], staging_bucket=config['gcp_pipeline']['BUCKET_URI'], service_account=config['gcp_pipeline']['SERVICE_ACCOUNT'])
+aip.init(project=config['gcp_pipeline']['PROJECT_ID'],
+staging_bucket=config['gcp_pipeline']['BUCKET_URI'],
+service_account=config['gcp_pipeline']['SERVICE_ACCOUNT'])
 
 
 @dsl.pipeline(

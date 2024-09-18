@@ -39,10 +39,9 @@ def data_transformation(
             # Apply binning and replace original column
             binned_df[col] = pd.cut(df[col], bins=bins, labels=labels, right=False, include_lowest=True)
     df = binned_df
-    print(df.head())
     df.drop(columns=['Gender','StandardHours', 'Over18', 'EmployeeCount', 'EmployeeNumber', 'BusinessTravel'], inplace=True)
     df['Department'].value_counts()
-    department_dummies = pd.get_dummies(df['Department'], prefix='Department', dtype=float) # why now we used one-hot encoding and not label encoding?
+    department_dummies = pd.get_dummies(df['Department'], prefix='Department', dtype=float)
     df.drop(columns=['Department'], inplace=True)
     df = pd.concat([df,department_dummies], axis=1)
     
@@ -56,7 +55,6 @@ def data_transformation(
     # OverTime
 
     df['OverTime'] = df['OverTime'].map({'yes': 1, 'no': 0})
-    print("Ciao we about to SMOTEEEE")
     desired_minority_count = int(0.3 * 1233)
     sampling_strategy = {0: 1233, 1: desired_minority_count}
     X_train = df.drop(columns=['Attrition'])
