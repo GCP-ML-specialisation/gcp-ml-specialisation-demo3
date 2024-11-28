@@ -169,3 +169,7 @@ cython_debug/
 #.idea/
 
 pipeline/output_files
+*.csv
+*.jpg
+capped_images/*
+data/*
