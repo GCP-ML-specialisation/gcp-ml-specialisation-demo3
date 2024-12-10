@@ -21,34 +21,34 @@ config.read("../config.ini")
 def training(
     processed_ds: Input[Dataset],
     project_id: str,
+    region: str,
     train_model: Output[Model],
 ):
 
     from google.cloud import aiplatform
-    aiplatform.init(project=project_id)
+    aiplatform.init(project=project_id, location=region)
     gcs_uri = processed_ds.uri + ".csv"
-    dataset = aiplatform.TabularDataset.create(
-        display_name="HR Analytics3",
-        gcs_source=gcs_uri,
-        )
-    label_column = "Attrition"
-    job = aiplatform.AutoMLTabularTrainingJob(
-        display_name="train-automl-hr-analytics1",
-        optimization_prediction_type="classification",
-        optimization_objective="maximize-au-prc",
-        )
-    model = job.run(
-        dataset=dataset,
-        target_column=label_column,
-        training_fraction_split=0.6,
-        validation_fraction_split=0.2,
-        test_fraction_split=0.2,
-        budget_milli_node_hours=1000,
-        model_display_name="test1",
-        disable_early_stopping=False,
-        )
     
-    train_model.uri = model.resource_name
+    
+    dataset = aiplatform.ImageDataset.create(
+        display_name="multi_class_image_dataset",
+        gcs_source=[gcs_uri],
+        import_schema_uri=aiplatform.schema.dataset.ioformat.image.single_label_classification,
+    )
+    model = aiplatform.AutoMLImageTrainingJob(
+        display_name="image_classification_training",
+        prediction_type="classification",  # Use "classification" for multi-class classification
+        multi_label=False,  # Set to True if it's a multi-label classification problem
+    )
+    model_job = model.run(
+        dataset=dataset,
+        model_display_name="image_classification_model",
+        budget_milli_node_hours=8000,  # Budget in milli node hours (8,000 = 8 node hours)
+        disable_early_stopping=False,  # Early stopping for efficiency
+    )
+    
+    train_model.metadata["resourceName"] = model_job.resource_name
+    train_model.uri = model_job.resource_name
     
 
 
@@ -79,6 +79,12 @@ def deploy_automl_model(
 
     model = aiplatform.Model(model_name=model_artifact.uri)
 
-    endpoint = model.deploy(machine_type='n1-standard-4')
+    
+    endpoint = model.deploy(
+    machine_type="n1-standard-4",  # Adjust machine type as needed
+    min_replica_count=1,          # Minimum number of replicas
+    max_replica_count=1,          # Maximum number of replicas must match minimum for this model type
+    )
+
     vertex_endpoint.uri = endpoint.resource_name
     vertex_model.uri = model.resource_name

@@ -32,18 +32,21 @@ service_account=config['gcp_pipeline']['SERVICE_ACCOUNT'])
 )
 def pipeline(
     BUCKET_URI: str = config['gcp_pipeline']['BUCKET_URI'],
-    FILE: str = config['gcp_pipeline']['FILE'],
+    FILE1: str = config['gcp_pipeline']['FILE1'],
+    FILE2: str = config['gcp_pipeline']['FILE2'],
 ):
 
     pre_processed_df = basic_preprocessing(
         BUCKET_URI=BUCKET_URI,
-        FILE=FILE
+        FILE1=FILE1,
+        FILE2=FILE2
     )
     feature_engineered_df = data_transformation(
-        df=pre_processed_df.output
+        df=pre_processed_df.output,
+        BUCKET_URI=BUCKET_URI
     )
    
-    model = training(processed_ds=feature_engineered_df.output, project_id=config['gcp_pipeline']['PROJECT_ID'])
+    model = training(processed_ds=feature_engineered_df.output, project_id=config['gcp_pipeline']['PROJECT_ID'], region=config['gcp']['region'])
     
 
     deploy_automl_model(
